@@ -1,0 +1,110 @@
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_HMC5883_U.h>
+#include <WiFiManager.h>  // Tambahkan pustaka WiFiManager
+
+// Definisikan pinout sensor HMC5883L
+#define SCL_PIN 25
+#define SDA_PIN 27
+#define DRDY_PIN 33
+
+Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
+WiFiServer server(80);
+String header;
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println("Mulai Konfigurasi");
+
+  // Inisialisasi I2C dengan pin yang telah didefinisikan
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  WiFiManager wifiManager;
+  wifiManager.autoConnect("ESP32_AP");  // Membuat Access Point jika tidak ada koneksi WiFi yang tersimpan
+
+  Serial.println("WiFi connected.");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+  server.begin();
+  Serial.println("Memulai Server");
+
+  // Inisialisasi sensor kompas
+  if (!mag.begin()) {
+    Serial.println("Tidak dapat menemukan sensor HMC5883L");
+    while (1);
+  }
+}
+
+void loop() {
+  WiFiClient client = server.available();
+
+  if (client) {
+    Serial.println("Client Baru");
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        header += c;
+        Serial.write(c);
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            Serial.println();
+
+            // Membaca nilai medan magnet
+            sensors_event_t event;
+            mag.getEvent(&event);
+
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html; charset=UTF-8");
+            client.println("Connection: close");
+            client.println();
+            
+            client.println("<!DOCTYPE html><html>");
+            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+            client.println("<meta charset=\"UTF-8\">");
+            client.println("<meta http-equiv=\"refresh\" content=\"5\">");
+            client.println("<link rel=\"icon\" href=\"data:,\">");
+            client.println("<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css\">");
+            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center; padding-top: 10px;}");
+            client.println("body { margin-top: 0.5cm; }");
+            client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
+            client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
+            client.println(".button2 {background-color: #555555;}");
+            client.println(".header-text { color: #00008B; }");
+            client.println(".esp-text { color: #D10069; }");
+            client.println(".data-text { font-size: 2em; margin: 10px 0; }</style></head>");
+            
+            client.println("<body><h1 class='header-text'>Next Koding Enterprise</h1>");
+            client.println("<h1 class='esp-text'>ESP32 Web Server</h1>");
+            client.println("<h2>Pengukuran Medan Magnet</h2>");
+            client.println("<p class='data-text'>X: " + String(event.magnetic.x) + " µT</p>");
+            client.println("<p class='data-text'>Y: " + String(event.magnetic.y) + " µT</p>");
+            client.println("<p class='data-text'>Z: " + String(event.magnetic.z) + " µT</p>");
+            
+            client.println("</body></html>");
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+      }
+    }
+    client.stop();
+    Serial.println("Client Terputus");
+    header = "";
+  }
+
+  // Menampilkan IP address dan SSID saat terhubung
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("SSID baru: ");
+    Serial.println(WiFi.SSID());
+    Serial.print("IP address baru: ");
+    Serial.println(WiFi.localIP());
+    delay(10000);  // Menunda 10 detik sebelum menampilkan kembali informasi
+  }
+}
